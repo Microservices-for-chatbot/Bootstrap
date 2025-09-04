@@ -62,7 +62,7 @@ docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
 
 # Deploy the Frontend service
 echo "Deploying Frontend service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/microservices-for-chatbot/frontend/tags/" | jq -r '.results[0].name')
+LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/frontend/tags/" | jq -r '.results[0].name')
 echo "Found latest frontend image tag: $LATEST_TAG"
 cd ./frontend
 helm upgrade --install frontend-release . --set image.tag=$LATEST_TAG
@@ -70,7 +70,7 @@ cd ..
 
 # Deploy the AI service
 echo "Deploying AI service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/microservices-for-chatbot/ai_service/tags/" | jq -r '.results[0].name')
+LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags/" | jq -r '.results[0].name')
 echo "Found latest AI service image tag: $LATEST_TAG"
 cd ./ai_service
 helm upgrade --install ai-service . --set image.tag=$LATEST_TAG
@@ -78,7 +78,7 @@ cd ..
 
 # Deploy the Chat History service
 echo "Deploying Chat History service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/microservices-for-chatbot/chat_history/tags/" | jq -r '.results[0].name')
+LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/chat-history-service/tags/" | jq -r '.results[0].name')
 echo "Found latest Chat History service image tag: $LATEST_TAG"
 cd ./chat_history
 helm upgrade --install chat-history-service . --set image.tag=$LATEST_TAG
