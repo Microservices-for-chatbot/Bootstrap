@@ -52,10 +52,11 @@
 
 # --- Deploying Microservices ---
 echo "Cloning microservice repositories and deploying with Helm..."
-# NOTE: The runner must have SSH keys configured for private repos.
-git clone git@github.com:Microservices-for-chatbot/frontend.git
-git clone git@github.com:Microservices-for-chatbot/ai_service.git
-git clone git@github.com:Microservices-for-chatbot/chat_history.git
+.
+git clone https://github.com/Microservices-for-chatbot/frontend.git
+git clone https://github.com/Microservices-for-chatbot/ai_service.git
+git clone https://github.com/Microservices-for-chatbot/chat_history.git
+
 
 # Log in to Docker Hub using secrets
 docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
