@@ -9,11 +9,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Configure SSH for Git
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
           
       - name: Make script executable
         run: sudo chmod +x ./setup-cluster.sh
