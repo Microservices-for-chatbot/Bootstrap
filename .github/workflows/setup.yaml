@@ -2,11 +2,6 @@ name: Cluster Bootstrap and Initial Setup
 
 on:
   workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for dispatching the workflow'
-        required: false
-        default: 'Manual setup of a new cluster'
 
 jobs:
   setup-cluster:
@@ -15,8 +10,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Configure SSH for Git
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
       - name: Make script executable
         run: sudo chmod +x ./setup-cluster.sh
 
-      - name: Run cluster setup script
+      - name: Run cluster setup and deploy script
         run: sudo ./setup-cluster.sh
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
