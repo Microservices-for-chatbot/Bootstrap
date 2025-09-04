@@ -1,0 +1,22 @@
+name: Cluster Bootstrap and Initial Setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for dispatching the workflow'
+        required: false
+        default: 'Manual setup of a new cluster'
+
+jobs:
+  setup-cluster:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make script executable
+        run: sudo chmod +x ./setup-cluster.sh
+
+      - name: Run cluster setup script
+        run: sudo ./setup-cluster.sh
