@@ -1,54 +1,54 @@
 #!/bin/bash
 
 # --- Install Dependencies ---
-echo "Updating apt and installing jq..."
-sudo apt-get update
-sudo apt-get install -y jq
+# echo "Updating apt and installing jq..."
+# sudo apt-get update
+# sudo apt-get install -y jq
 
 # --- Kubernetes Cluster Setup ---
-echo "Setting hostname to kmaster..."
-sudo hostnamectl set-hostname kmaster
+# echo "Setting hostname to kmaster..."
+# sudo hostnamectl set-hostname kmaster
 
-echo "Initializing Kubernetes control plane..."
-# NOTE: The --pod-network-cidr is important and must match your CNI.
-# 10.32.0.0/12 is the standard for Weave Net.
-sudo kubeadm init --pod-network-cidr=10.32.0.0/12
+# echo "Initializing Kubernetes control plane..."
+# # NOTE: The --pod-network-cidr is important and must match your CNI.
+# # 10.32.0.0/12 is the standard for Weave Net.
+# sudo kubeadm init --pod-network-cidr=10.32.0.0/12
 
-echo "Configuring kubectl for the current user..."
-mkdir -p $HOME/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $(id -u):$(id -g) $HOME/.kube/config
+# echo "Configuring kubectl for the current user..."
+# mkdir -p $HOME/.kube
+# sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+# sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
-echo "Applying Weave Net CNI..."
-kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+# echo "Applying Weave Net CNI..."
+# kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
 
-# Wait for the node to be ready before removing the taint
-echo "Waiting for the node to be ready..."
-while [ $(kubectl get nodes | grep "kmaster" | awk '{print $2}') != "Ready" ]; do
-  echo "Node not ready yet. Waiting 5 seconds..."
-  sleep 5
-done
+# # Wait for the node to be ready before removing the taint
+# echo "Waiting for the node to be ready..."
+# while [ $(kubectl get nodes | grep "kmaster" | awk '{print $2}') != "Ready" ]; do
+#   echo "Node not ready yet. Waiting 5 seconds..."
+#   sleep 5
+# done
 
-echo "Removing the control-plane taint from the kmaster node..."
-kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || true
+# echo "Removing the control-plane taint from the kmaster node..."
+# kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || true
 
-# --- Helm and Ingress Installation ---
-echo "Installing Helm..."
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# # --- Helm and Ingress Installation ---
+# echo "Installing Helm..."
+# curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-echo "Adding Nginx Ingress Controller Helm repo and installing..."
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
+# echo "Adding Nginx Ingress Controller Helm repo and installing..."
+# helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+# helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
 
-# --- Metrics Server Installation and Patching ---
-echo "Installing Metrics Server..."
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# # --- Metrics Server Installation and Patching ---
+# echo "Installing Metrics Server..."
+# kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
-# This section automates the 'kubectl edit' step
-echo "Patching Metrics Server deployment to enable kubelet-insecure-tls..."
-kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system
+# # This section automates the 'kubectl edit' step
+# echo "Patching Metrics Server deployment to enable kubelet-insecure-tls..."
+# kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system
 
-kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+# kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
 
 # --- Deploying Microservices ---
 echo "Cloning microservice repositories and deploying with Helm..."
