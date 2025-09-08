@@ -20,12 +20,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Get Private Key Content
-        id: get-private-key
+      - name: Set Private Key Content
+        id: set-private-key
         run: |
-          # Use a tool like `aws ssm get-parameter` or a secure method to retrieve the private key
-          # For this example, we assume it's stored in a GitHub Secret
-          echo "private_key_content=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "private_key_content<<EOF" >> $GITHUB_ENV
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: terraform init
