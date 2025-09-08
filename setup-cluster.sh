@@ -32,7 +32,6 @@ sudo apt-get install -y jq curl git
 
 check_and_run "Installing Helm" "helm" "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
 
-# This Docker installation step is crucial for local runners
 if ! command -v docker &> /dev/null; then
     echo "Installing Docker..."
     sudo apt-get install -y docker.io
@@ -43,12 +42,10 @@ else
 fi
 
 # --- Kubernetes Cluster Setup ---
-# Check if a control plane is already initialized
 if ! sudo grep -q "control-plane-endpoint" /etc/kubernetes/admin.conf &> /dev/null; then
     echo "Initializing Kubernetes control plane..."
     sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}"
     
-    # Configure kubectl for the current user
     mkdir -p "$HOME/.kube"
     sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
     sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
@@ -59,7 +56,6 @@ fi
 echo "Applying Weave Net CNI..."
 kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml || true
 
-# Wait for the node to be ready and remove taint
 echo "Waiting for the node to be ready..."
 kubectl wait --for=condition=Ready node/kmaster --timeout=300s || true
 echo "Removing the control-plane taint from the kmaster node..."
@@ -76,6 +72,21 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system || true
 kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]' || true
 
+# --- Prometheus and Grafana Installation ---
+echo "Adding Prometheus and Grafana Helm repositories..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+helm repo add grafana https://grafana.github.io/helm-charts || true
+echo "Updating Helm repositories..."
+helm repo update
+
+echo "Deploying Prometheus..."
+helm install prometheus prometheus-community/kube-prometheus-stack \
+    --namespace monitoring --create-namespace || true
+
+echo "Deploying Grafana..."
+helm install grafana grafana/grafana \
+    --namespace monitoring --create-namespace || true
+
 # --- Deploying Microservices ---
 echo "Cloning and deploying microservices..."
 for repo in $CHATBOT_REPOS; do
@@ -89,10 +100,8 @@ for repo in $CHATBOT_REPOS; do
         cd "$repo"
     fi
     
-    # Create required secrets and configmaps before deployment
     if [ "$repo" == "ai_service" ]; then
         echo "Creating Kubernetes secrets and configmaps for AI service..."
-        # This uses the dedicated GOOGLE_API_KEY secret from the workflow
         kubectl create secret generic ai-service-secrets \
           --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" \
           --dry-run=client -o yaml | kubectl apply -f - || true
@@ -102,7 +111,6 @@ for repo in $CHATBOT_REPOS; do
           --dry-run=client -o yaml | kubectl apply -f - || true
     fi
 
-    # Log in to Docker Hub
     if ! docker info | grep "Username: $DOCKERHUB_USERNAME" &> /dev/null; then
         echo "Logging in to Docker Hub..."
         docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
@@ -110,14 +118,12 @@ for repo in $CHATBOT_REPOS; do
         echo "Already logged in to Docker Hub. Skipping."
     fi
 
-    # Get latest image tag from Docker Hub
     LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/" | jq -r '.results[0].name')
     echo "Found latest image tag for $repo: $LATEST_TAG"
 
-    # Deploy with Helm
     cd "./$CHART_SUBDIR"
     helm upgrade --install "${repo}-release" . --set image.tag="$LATEST_TAG" || true
-    cd ../.. # Return to the original directory before the loop continues
+    cd ../..
 done
 
 echo "All services deployed successfully!"
