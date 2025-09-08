@@ -1,93 +1,123 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+# --- Environment Variables ---
+DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-amithpalissery}
+CHATBOT_REPOS="frontend ai_service chat_history"
+POD_NETWORK_CIDR="10.32.0.0/12"
+CHART_SUBDIR="Helm-chart"
+
+# --- Idempotent Cluster Setup Functions ---
+# This function checks if a command exists and runs a setup command if it doesn't.
+check_and_run() {
+    local cmd_name="$1"
+    local check_cmd="$2"
+    local run_cmd="$3"
+    if ! command -v "$check_cmd" &> /dev/null; then
+        echo "Running: $cmd_name"
+        eval "$run_cmd"
+    else
+        echo "Skipping: $cmd_name (already installed)"
+    fi
+}
+
+# --- Main Script ---
+
 # --- Install Dependencies ---
-echo "Updating apt and installing jq..."
+echo "Updating apt and installing dependencies..."
 sudo apt-get update
-sudo apt-get install -y jq
+sudo apt-get install -y jq curl git
 
-# --- Kubernetes Cluster Setup (Idempotency Check) ---
-echo "Setting hostname to kmaster..."
-sudo hostnamectl set-hostname kmaster
+check_and_run "Installing Helm" "helm" "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
 
-# Check if Kubernetes is already initialized before running kubeadm init
-if ! kubectl cluster-info &> /dev/null; then
-    echo "Initializing Kubernetes control plane..."
-    sudo kubeadm init --pod-network-cidr=10.32.0.0/12
-    
-    echo "Configuring kubectl for the current user..."
-    mkdir -p $HOME/.kube
-    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-    sudo chown $(id -u):$(id -g) $HOME/.kube/config
-    
-    echo "Applying Weave Net CNI..."
-    kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+# This Docker installation step is crucial for local runners
+if ! command -v docker &> /dev/null; then
+    echo "Installing Docker..."
+    sudo apt-get install -y docker.io
+    sudo usermod -aG docker "$USER"
+    newgrp docker || true
+else
+    echo "Docker is already installed. Skipping."
 fi
 
-# Wait for the node to be ready before removing the taint
-echo "Waiting for the node to be ready..."
-while [ $(kubectl get nodes | grep "kmaster" | awk '{print $2}') != "Ready" ]; do
-    echo "Node not ready yet. Waiting 5 seconds..."
-    sleep 5
-done
+# --- Kubernetes Cluster Setup ---
+# Check if a control plane is already initialized
+if ! sudo grep -q "control-plane-endpoint" /etc/kubernetes/admin.conf &> /dev/null; then
+    echo "Initializing Kubernetes control plane..."
+    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}"
+    
+    # Configure kubectl for the current user
+    mkdir -p "$HOME/.kube"
+    sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
+    sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+else
+    echo "Kubernetes control plane is already initialized. Skipping."
+fi
 
+echo "Applying Weave Net CNI..."
+kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml || true
+
+# Wait for the node to be ready and remove taint
+echo "Waiting for the node to be ready..."
+kubectl wait --for=condition=Ready node/kmaster --timeout=300s || true
 echo "Removing the control-plane taint from the kmaster node..."
 kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || true
 
-# --- Helm and Ingress Installation (Idempotent) ---
-echo "Installing Helm..."
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
+# --- Helm and Ingress Installation ---
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-# Using 'upgrade --install' makes this command safe to rerun
-helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
+helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace || true
 
-# --- Metrics Server Installation and Patching (Idempotent) ---
-echo "Installing Metrics Server..."
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-echo "Patching Metrics Server deployment to enable kubelet-insecure-tls..."
-kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system
-kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]'
+# --- Metrics Server Installation and Patching ---
+echo "Installing and patching Metrics Server..."
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
+kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system || true
+kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]' || true
 
 # --- Deploying Microservices ---
-echo "Cloning microservice repositories and deploying with Helm..."
+echo "Cloning and deploying microservices..."
+for repo in $CHATBOT_REPOS; do
+    echo "Processing $repo..."
+    if [ -d "$repo" ]; then
+        echo "Repository $repo already exists. Pulling latest changes..."
+        cd "$repo"
+        git pull
+    else
+        git clone "https://github.com/Microservices-for-chatbot/$repo.git"
+        cd "$repo"
+    fi
+    
+    # Create required secrets and configmaps before deployment
+    if [ "$repo" == "ai_service" ]; then
+        echo "Creating Kubernetes secrets and configmaps for AI service..."
+        # This uses the dedicated GOOGLE_API_KEY secret from the workflow
+        kubectl create secret generic ai-service-secrets \
+          --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" \
+          --dry-run=client -o yaml | kubectl apply -f - || true
 
-# Idempotency check before cloning each repo
-if [ ! -d "frontend" ]; then
-    git clone https://github.com/Microservices-for-chatbot/frontend.git
-fi
-if [ ! -d "ai_service" ]; then
-    git clone https://github.com/Microservices-for-chatbot/ai_service.git
-fi
-if [ ! -d "chat_history" ]; then
-    git clone https://github.com/Microservices-for-chatbot/chat_history.git
-fi
+        kubectl create configmap app-config \
+          --from-literal=chatHistoryUrl='http://chat-history-service:5002' \
+          --dry-run=client -o yaml | kubectl apply -f - || true
+    fi
 
-# Log in to Docker Hub using secrets
-docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
+    # Log in to Docker Hub
+    if ! docker info | grep "Username: $DOCKERHUB_USERNAME" &> /dev/null; then
+        echo "Logging in to Docker Hub..."
+        docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
+    else
+        echo "Already logged in to Docker Hub. Skipping."
+    fi
 
-# Deploy the Frontend service
-echo "Deploying Frontend service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/frontend/tags/" | jq -r '.results[0].name')
-echo "Found latest frontend image tag: $LATEST_TAG"
-cd ./frontend
-helm upgrade --install frontend-release . --set image.tag=$LATEST_TAG
-cd ..
+    # Get latest image tag from Docker Hub
+    LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/" | jq -r '.results[0].name')
+    echo "Found latest image tag for $repo: $LATEST_TAG"
 
-# Deploy the AI service
-echo "Deploying AI service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags/" | jq -r '.results[0].name')
-echo "Found latest AI service image tag: $LATEST_TAG"
-cd ./ai_service
-helm upgrade --install ai-service . --set image.tag=$LATEST_TAG
-cd ..
-
-# Deploy the Chat History service
-echo "Deploying Chat History service..."
-LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/chat-history-service/tags/" | jq -r '.results[0].name')
-echo "Found latest Chat History service image tag: $LATEST_TAG"
-cd ./chat_history
-helm upgrade --install chat-history-service . --set image.tag=$LATEST_TAG
-cd ..
+    # Deploy with Helm
+    cd "./$CHART_SUBDIR"
+    helm upgrade --install "${repo}-release" . --set image.tag="$LATEST_TAG" || true
+    cd ../.. # Return to the original directory before the loop continues
+done
 
 echo "All services deployed successfully!"
