@@ -1,19 +1,34 @@
-name: Cluster Bootstrap and Initial Setup
+name: Deploy Cluster on EC2
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup-cluster:
-    runs-on: self-hosted
+  bootstrap:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Make script executable
-        run: sudo chmod +x ./setup-cluster.sh
-      - name: Run cluster setup and deploy script
-        run: ./setup-cluster.sh
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }} # Use a variable for region
+
+      - name: Generate SSH key for Terraform
+        run: |
+          ssh-keygen -t rsa -b 4096 -N "" -f ssh_key
+          echo "PRIVATE_KEY=$(cat ssh_key)" >> $GITHUB_ENV
+          echo "PUBLIC_KEY=$(cat ssh_key.pub)" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: |
+          terraform apply -auto-approve -var="public_key=${{ env.PUBLIC_KEY }}" -var="private_key=${{ env.PRIVATE_KEY }}"
