@@ -44,7 +44,7 @@ fi
 # --- Kubernetes Cluster Setup ---
 if ! sudo grep -q "control-plane-endpoint" /etc/kubernetes/admin.conf &> /dev/null; then
     echo "Initializing Kubernetes control plane..."
-    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}"
+    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket=unix:///var/run/crio/crio.sock
     
     mkdir -p "$HOME/.kube"
     sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
@@ -54,7 +54,11 @@ else
 fi
 
 echo "Applying Weave Net CNI..."
-kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml || true
+if ! kubectl get ds -n kube-system | grep -q 'weave-net'; then
+    kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml || true
+else
+    echo "Weave Net CNI already deployed. Skipping."
+fi
 
 echo "Waiting for the node to be ready..."
 kubectl wait --for=condition=Ready node/kmaster --timeout=300s || true
@@ -63,14 +67,22 @@ kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || 
 
 # --- Helm and Ingress Installation ---
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
-helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace || true
+helm repo add ingress-nginx https://kubernetes.io/ingress-nginx || true
+if ! helm status ingress-nginx -n ingress-nginx &> /dev/null; then
+    helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace || true
+else
+    echo "Nginx Ingress Controller already deployed. Skipping."
+fi
 
 # --- Metrics Server Installation and Patching ---
 echo "Installing and patching Metrics Server..."
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
-kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system || true
-kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]' || true
+if ! kubectl get deploy -n kube-system | grep -q 'metrics-server'; then
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
+    kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system || true
+    kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]' || true
+else
+    echo "Metrics Server already deployed. Skipping."
+fi
 
 # --- Prometheus and Grafana Installation ---
 echo "Adding Prometheus and Grafana Helm repositories..."
@@ -80,12 +92,20 @@ echo "Updating Helm repositories..."
 helm repo update
 
 echo "Deploying Prometheus..."
-helm install prometheus prometheus-community/kube-prometheus-stack \
-    --namespace monitoring --create-namespace || true
+if ! helm status prometheus -n monitoring &> /dev/null; then
+    helm install prometheus prometheus-community/kube-prometheus-stack \
+        --namespace monitoring --create-namespace || true
+else
+    echo "Prometheus already deployed. Skipping."
+fi
 
 echo "Deploying Grafana..."
-helm install grafana grafana/grafana \
-    --namespace monitoring --create-namespace || true
+if ! helm status grafana -n monitoring &> /dev/null; then
+    helm install grafana grafana/grafana \
+        --namespace monitoring --create-namespace || true
+else
+    echo "Grafana already deployed. Skipping."
+fi
 
 # --- Deploying Microservices ---
 echo "Cloning and deploying microservices..."
