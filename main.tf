@@ -17,7 +17,7 @@ resource "aws_key_pair" "ssh_key" {
 }
 
 resource "aws_instance" "runner_instance" {
-  ami           = "ami-0c55b159cbfafe1f0" # Use a valid Ubuntu AMI ID for your region
+  ami           = "ami-04f59c565deeb2199"
   instance_type = var.instance_type
   key_name      = aws_key_pair.ssh_key.key_name
 
