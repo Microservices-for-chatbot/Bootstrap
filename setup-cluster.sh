@@ -8,6 +8,7 @@ DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-amithpalissery}
 CHATBOT_REPOS="frontend ai_service chat_history"
 POD_NETWORK_CIDR="10.32.0.0/12"
 CHART_SUBDIR="Helm-chart"
+CRI_SOCKET="unix:///var/run/crio/crio.sock"
 
 # --- Idempotent Cluster Setup Functions ---
 # This function checks if a command exists and runs a setup command if it doesn't.
@@ -42,9 +43,13 @@ else
 fi
 
 # --- Kubernetes Cluster Setup ---
+echo "Setting hostname to kmaster..."
+sudo hostnamectl set-hostname kmaster
+
+# Check for existing Kubernetes cluster
 if ! sudo grep -q "control-plane-endpoint" /etc/kubernetes/admin.conf &> /dev/null; then
     echo "Initializing Kubernetes control plane..."
-    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket=unix:///var/run/crio/crio.sock
+    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket="${CRI_SOCKET}"
     
     mkdir -p "$HOME/.kube"
     sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
