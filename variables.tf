@@ -10,13 +10,14 @@ variable "instance_type" {
   default     = "t2.medium"
 }
 
-variable "public_key" {
-  description = "The public key for SSH access."
+variable "key_name" {
+  description = "The name of the pre-existing SSH key pair in AWS."
   type        = string
+  default     = "amithnv"
 }
 
-variable "private_key" {
-  description = "The private key for SSH access."
+variable "private_key_content" {
+  description = "The content of the private key for SSH access."
   type        = string
-  sensitive   = true
+  sensitive   = true # Marks the variable as sensitive to prevent it from being displayed in logs.
 }
