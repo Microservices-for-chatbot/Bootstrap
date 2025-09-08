@@ -16,6 +16,11 @@ variable "key_name" {
   default     = "amithnv"
 }
 
+variable "public_key" {
+  description = "The content of the public key for SSH access."
+  type        = string
+}
+
 variable "private_key_content" {
   description = "The content of the private key for SSH access."
   type        = string
