@@ -20,15 +20,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }} # Use a variable for region
 
-      - name: Generate SSH key for Terraform
+      - name: Get Private Key Content
+        id: get-private-key
         run: |
-          ssh-keygen -t rsa -b 4096 -N "" -f ssh_key
-          echo "PRIVATE_KEY=$(cat ssh_key)" >> $GITHUB_ENV
-          echo "PUBLIC_KEY=$(cat ssh_key.pub)" >> $GITHUB_ENV
+          # Use a tool like `aws ssm get-parameter` or a secure method to retrieve the private key
+          # For this example, we assume it's stored in a GitHub Secret
+          echo "private_key_content=${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_ENV
 
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Apply
-        run: |
-          terraform apply -auto-approve -var="public_key=${{ env.PUBLIC_KEY }}" -var="private_key=${{ env.PRIVATE_KEY }}"
+        run: terraform apply -auto-approve -var="private_key_content=${{ env.private_key_content }}" -var="key_name=amithnv"
