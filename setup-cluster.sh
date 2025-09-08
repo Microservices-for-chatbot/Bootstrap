@@ -47,15 +47,16 @@ echo "Setting hostname to kmaster..."
 sudo hostnamectl set-hostname kmaster
 
 # Check for existing Kubernetes cluster
-if ! sudo grep -q "control-plane-endpoint" /etc/kubernetes/admin.conf &> /dev/null; then
-    echo "Initializing Kubernetes control plane..."
+if ! kubectl get pods -n kube-system | grep -q 'kube-apiserver-kmaster'; then
+    echo "No Kubernetes control plane found. Initializing new cluster..."
     sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket="${CRI_SOCKET}"
     
+    echo "Configuring kubectl for the current user..."
     mkdir -p "$HOME/.kube"
     sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
     sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
 else
-    echo "Kubernetes control plane is already initialized. Skipping."
+    echo "Kubernetes control plane is already initialized. Skipping initialization."
 fi
 
 echo "Applying Weave Net CNI..."
