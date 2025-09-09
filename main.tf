@@ -11,15 +11,10 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_key_pair" "ssh_key" {
-  key_name   = "my-runner-key"
-  public_key = var.public_key
-}
-
 resource "aws_instance" "runner_instance" {
-  ami           = "ami-04f59c565deeb2199"
+  ami           = "ami-0c55b159cbfafe1f0" 
   instance_type = var.instance_type
-  key_name      = aws_key_pair.ssh_key.key_name
+  key_name      = var.key_name
 
   tags = {
     Name = "Temporary-Kubernetes-Installer"
@@ -28,7 +23,7 @@ resource "aws_instance" "runner_instance" {
   connection {
     type        = "ssh"
     user        = "ubuntu"
-    private_key = var.private_key
+    private_key = var.private_key_content
     host        = self.public_ip
   }
 
