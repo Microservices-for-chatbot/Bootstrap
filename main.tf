@@ -12,7 +12,7 @@ provider "aws" {
 }
 
 resource "aws_instance" "runner_instance" {
-  ami           = "ami-0c55b159cbfafe1f0" 
+  ami           = "ami-0a84ffe13366e143f" 
   instance_type = var.instance_type
   key_name      = var.key_name
 
