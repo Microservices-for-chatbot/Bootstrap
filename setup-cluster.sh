@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
 set -e
 
 # --- Environment Variables ---
+RUNNER_USER=${USER:-ubuntu}
 DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-amithpalissery}
 CHATBOT_REPOS="frontend ai_service chat_history"
 POD_NETWORK_CIDR="10.32.0.0/12"
@@ -11,7 +11,6 @@ CHART_SUBDIR="Helm-chart"
 CRI_SOCKET="unix:///var/run/crio/crio.sock"
 
 # --- Idempotent Cluster Setup Functions ---
-# This function checks if a command exists and runs a setup command if it doesn't.
 check_and_run() {
     local cmd_name="$1"
     local check_cmd="$2"
@@ -25,29 +24,49 @@ check_and_run() {
 }
 
 # --- Main Script ---
-
-# --- Install Dependencies ---
 echo "Updating apt and installing dependencies..."
-sudo apt-get update
-sudo apt-get install -y jq curl git
+# This command is often a point of failure, so let's add retries.
+for i in {1..5}; do
+  sudo apt-get -o Acquire::ForceIPv4=true update && break || sleep 15
+done
+sudo apt-get install -y jq curl git apt-transport-https ca-certificates gnupg
 
-check_and_run "Installing Helm" "helm" "curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+# Add Docker's official GPG key and repository. This is crucial for a successful install.
+echo "Adding Docker's official GPG key..."
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo "Adding Docker repository to Apt sources..."
+echo \
+  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+echo "Updating Apt package index with Docker repository..."
+sudo apt-get update
 
 if ! command -v docker &> /dev/null; then
     echo "Installing Docker..."
-    sudo apt-get install -y docker.io
-    sudo usermod -aG docker "$USER"
-    newgrp docker || true
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    sudo usermod -aG docker "$RUNNER_USER"
 else
     echo "Docker is already installed. Skipping."
 fi
 
-# --- Kubernetes Cluster Setup ---
+# Add Kubernetes' official GPG key and repository
+echo "Installing kubelet, kubeadm, and kubectl..."
+sudo curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
 echo "Setting hostname to kmaster..."
 sudo hostnamectl set-hostname kmaster
 
 # Check for existing Kubernetes cluster
-if ! kubectl get pods -n kube-system | grep -q 'kube-apiserver-kmaster'; then
+if ! sudo kubectl get pods -n kube-system | grep -q 'kube-apiserver-kmaster'; then
     echo "No Kubernetes control plane found. Initializing new cluster..."
     sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket="${CRI_SOCKET}"
     
@@ -71,7 +90,7 @@ kubectl wait --for=condition=Ready node/kmaster --timeout=300s || true
 echo "Removing the control-plane taint from the kmaster node..."
 kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || true
 
-# --- Helm and Ingress Installation ---
+# Helm and Ingress Installation
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
 helm repo add ingress-nginx https://kubernetes.io/ingress-nginx || true
 if ! helm status ingress-nginx -n ingress-nginx &> /dev/null; then
@@ -80,7 +99,7 @@ else
     echo "Nginx Ingress Controller already deployed. Skipping."
 fi
 
-# --- Metrics Server Installation and Patching ---
+# Metrics Server Installation and Patching
 echo "Installing and patching Metrics Server..."
 if ! kubectl get deploy -n kube-system | grep -q 'metrics-server'; then
     kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
@@ -90,7 +109,7 @@ else
     echo "Metrics Server already deployed. Skipping."
 fi
 
-# --- Prometheus and Grafana Installation ---
+# Prometheus and Grafana Installation
 echo "Adding Prometheus and Grafana Helm repositories..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
 helm repo add grafana https://grafana.github.io/helm-charts || true
@@ -113,7 +132,7 @@ else
     echo "Grafana already deployed. Skipping."
 fi
 
-# --- Deploying Microservices ---
+# Deploying Microservices
 echo "Cloning and deploying microservices..."
 for repo in $CHATBOT_REPOS; do
     echo "Processing $repo..."
@@ -149,7 +168,8 @@ for repo in $CHATBOT_REPOS; do
 
     cd "./$CHART_SUBDIR"
     helm upgrade --install "${repo}-release" . --set image.tag="$LATEST_TAG" || true
-    cd ../..
+    cd .. # Corrected: move back to the root directory
+    cd ..
 done
 
 echo "All services deployed successfully!"
