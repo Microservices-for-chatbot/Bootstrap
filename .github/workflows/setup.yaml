@@ -30,7 +30,7 @@ jobs:
       - name: Terraform Init
         run: terraform init
 
-       - name: Terraform Apply
+      - name: Terraform Apply
         run: |
           # Use a HERE-string to securely pass the multi-line secret
           terraform apply -auto-approve \
