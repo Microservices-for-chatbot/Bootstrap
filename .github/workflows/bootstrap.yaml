@@ -20,19 +20,23 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Set Private Key Content
-        id: set-private-key
-        run: |
-          echo "private_key_content<<EOF" >> $GITHUB_ENV
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Apply
+        id: apply
         run: |
-          # Use a HERE-string to securely pass the multi-line secret
           terraform apply -auto-approve \
             -var="key_name=amithnv" \
             -var="private_key_content=${{ secrets.SSH_PRIVATE_KEY }}"
+      
+      - name: Get Terraform Outputs
+        id: outputs
+        run: |
+          echo "instance_public_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_ENV
+          
+      - name: Save IP Address to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ec2-ip-address
+          path: terraform.tfstate
