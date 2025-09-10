@@ -1,4 +1,4 @@
-name: Deploy Cluster on EC2
+name: EC2 creation and initialization
 
 on:
   workflow_dispatch:
