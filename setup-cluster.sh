@@ -1,175 +1,125 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Environment Variables ---
-RUNNER_USER=${USER:-ubuntu}
-DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME:-amithpalissery}
-CHATBOT_REPOS="frontend ai_service chat_history"
-POD_NETWORK_CIDR="10.32.0.0/12"
-CHART_SUBDIR="Helm-chart"
-CRI_SOCKET="unix:///var/run/crio/crio.sock"
+# --- Install Dependencies ---
+sudo apt update -y
+sudo apt upgrade -y
 
-# --- Idempotent Cluster Setup Functions ---
-check_and_run() {
-    local cmd_name="$1"
-    local check_cmd="$2"
-    local run_cmd="$3"
-    if ! command -v "$check_cmd" &> /dev/null; then
-        echo "Running: $cmd_name"
-        eval "$run_cmd"
-    else
-        echo "Skipping: $cmd_name (already installed)"
-    fi
-}
-
-# --- Main Script ---
-echo "Updating apt and installing dependencies..."
-# This command is often a point of failure, so let's add retries.
-for i in {1..5}; do
-  sudo apt-get -o Acquire::ForceIPv4=true update && break || sleep 15
-done
-sudo apt-get install -y jq curl git apt-transport-https ca-certificates gnupg
-
-# Add Docker's official GPG key and repository. This is crucial for a successful install.
-echo "Adding Docker's official GPG key..."
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-echo "Adding Docker repository to Apt sources..."
-echo \
-  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-echo "Updating Apt package index with Docker repository..."
-sudo apt-get update
-
-if ! command -v docker &> /dev/null; then
-    echo "Installing Docker..."
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    sudo usermod -aG docker "$RUNNER_USER"
-else
-    echo "Docker is already installed. Skipping."
-fi
-
-# Add Kubernetes' official GPG key and repository
-echo "Installing kubelet, kubeadm, and kubectl..."
-sudo curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
-
-echo "Setting hostname to kmaster..."
-sudo hostnamectl set-hostname kmaster
-
-# Check for existing Kubernetes cluster
-if ! sudo kubectl get pods -n kube-system | grep -q 'kube-apiserver-kmaster'; then
-    echo "No Kubernetes control plane found. Initializing new cluster..."
-    sudo kubeadm init --pod-network-cidr="${POD_NETWORK_CIDR}" --cri-socket="${CRI_SOCKET}"
+# --- Kubernetes Cluster Setup ---
+# Kubeadm initialization
+# The checks below are for a Kubernetes API server running on the machine.
+# This assumes the script runs on the machine where the control-plane should be.
+if ! kubectl get pods -n kube-system 2>/dev/null | grep -q 'kube-apiserver'; then
+    echo "No Kubernetes control-plane found. Initializing new cluster..."
     
-    echo "Configuring kubectl for the current user..."
-    mkdir -p "$HOME/.kube"
-    sudo cp -i /etc/kubernetes/admin.conf "$HOME/.kube/config"
-    sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+    # Kubeadm init command
+    sudo kubeadm init --cri-socket=unix:///var/run/crio/crio.sock
+    
+    # Configure kubeconfig for the ubuntu user
+    echo "Configuring kubectl for ubuntu user..."
+    sudo mkdir -p /home/ubuntu/.kube
+    sudo cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
+    sudo chown ubuntu:ubuntu /home/ubuntu/.kube/config
+    
+    # Install Weave Net CNI
+    echo "Applying Weave Net CNI..."
+    sudo -u ubuntu kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
+    
+    # Wait until node is Ready
+    echo "Waiting for node to become Ready..."
+    until sudo -u ubuntu kubectl get nodes | grep -q ' Ready '; do
+        sleep 5
+    done
+    
+    # Remove control-plane taint
+    echo "Removing control-plane taint..."
+    sudo -u ubuntu kubectl taint node $(hostname) node-role.kubernetes.io/control-plane:NoSchedule- || true
+    
+    # Wait for kube-system pods
+    echo "Waiting for kube-system pods to be Ready..."
+    until sudo -u ubuntu kubectl get pods -n kube-system | grep -Ev 'STATUS|Running' | wc -l | grep -q '^0$'; do
+        sleep 5
+    done
+    
+    echo "Kubernetes control-plane setup complete."
 else
-    echo "Kubernetes control plane is already initialized. Skipping initialization."
+    echo "[INFO] Kubernetes already initialized, skipping kubeadm init."
 fi
 
-echo "Applying Weave Net CNI..."
-if ! kubectl get ds -n kube-system | grep -q 'weave-net'; then
-    kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml || true
-else
-    echo "Weave Net CNI already deployed. Skipping."
-fi
-
-echo "Waiting for the node to be ready..."
-kubectl wait --for=condition=Ready node/kmaster --timeout=300s || true
-echo "Removing the control-plane taint from the kmaster node..."
-kubectl taint node kmaster node-role.kubernetes.io/control-plane:NoSchedule- || true
-
-# Helm and Ingress Installation
+# -------------------------------------------------------------
+## Helm and Ingress Installation
+# -------------------------------------------------------------
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
-helm repo add ingress-nginx https://kubernetes.io/ingress-nginx || true
+# Check for Helm installation before running the command
+if ! command -v helm &> /dev/null; then
+    echo "Helm is not installed. Installing Helm now..."
+    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | sudo bash
+fi
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
+helm repo update ingress-nginx
+
 if ! helm status ingress-nginx -n ingress-nginx &> /dev/null; then
-    helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace || true
+    echo "Installing Nginx Ingress Controller..."
+    helm install ingress-nginx ingress-nginx/ingress-nginx \
+        --namespace ingress-nginx --create-namespace || true
 else
     echo "Nginx Ingress Controller already deployed. Skipping."
 fi
 
-# Metrics Server Installation and Patching
-echo "Installing and patching Metrics Server..."
-if ! kubectl get deploy -n kube-system | grep -q 'metrics-server'; then
-    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || true
-    kubectl wait --for=condition=Available deployment/metrics-server --timeout=120s -n kube-system || true
-    kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value": "--kubelet-insecure-tls"}]' || true
-else
-    echo "Metrics Server already deployed. Skipping."
-fi
-
-# Prometheus and Grafana Installation
-echo "Adding Prometheus and Grafana Helm repositories..."
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
-helm repo add grafana https://grafana.github.io/helm-charts || true
-echo "Updating Helm repositories..."
-helm repo update
-
-echo "Deploying Prometheus..."
-if ! helm status prometheus -n monitoring &> /dev/null; then
-    helm install prometheus prometheus-community/kube-prometheus-stack \
-        --namespace monitoring --create-namespace || true
-else
-    echo "Prometheus already deployed. Skipping."
-fi
-
-echo "Deploying Grafana..."
-if ! helm status grafana -n monitoring &> /dev/null; then
-    helm install grafana grafana/grafana \
-        --namespace monitoring --create-namespace || true
-else
-    echo "Grafana already deployed. Skipping."
-fi
-
-# Deploying Microservices
-echo "Cloning and deploying microservices..."
-for repo in $CHATBOT_REPOS; do
-    echo "Processing $repo..."
-    if [ -d "$repo" ]; then
-        echo "Repository $repo already exists. Pulling latest changes..."
-        cd "$repo"
-        git pull
+# -------------------------------------------------------------
+## Metrics Server Installation
+# -------------------------------------------------------------
+if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
+    echo "[INFO] Installing Metrics Server..."
+    
+    # Check if kubectl is configured for the current user (ubuntu)
+    if ! sudo -u ubuntu kubectl get nodes &> /dev/null; then
+      echo "kubectl is not configured for the ubuntu user. Skipping Metrics Server installation."
     else
-        git clone "https://github.com/Microservices-for-chatbot/$repo.git"
-        cd "$repo"
+      sudo -u ubuntu kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+      
+      # Use sudo -u ubuntu to ensure the command runs with the correct permissions
+      sudo -u ubuntu kubectl -n kube-system patch deploy metrics-server \
+          --type='json' \
+          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-insecure-tls"}, {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-preferred-address-types=InternalIP"}]'
+      
+      # Wait for metrics-server to be ready
+      echo "Waiting for Metrics Server to be ready..."
+      sudo -u ubuntu kubectl wait --for=condition=available deployment/metrics-server --timeout=120s -n kube-system
+      
+      echo "Metrics Server installation complete."
+    fi
+else
+    echo "[INFO] Metrics Server already installed, skipping."
+fi
+
+# -------------------------------------------------------------
+## Prometheus and Grafana Installation
+# -------------------------------------------------------------
+if ! helm list -n monitoring | grep -q "prometheus"; then
+    echo "[INFO] Installing kube-prometheus-stack (Prometheus + Grafana)..."
+    
+    if ! helm repo list | grep -q "prometheus-community"; then
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    fi
+    if ! helm repo list | grep -q "grafana"; then
+        helm repo add grafana https://grafana.github.io/helm-charts
     fi
     
-    if [ "$repo" == "ai_service" ]; then
-        echo "Creating Kubernetes secrets and configmaps for AI service..."
-        kubectl create secret generic ai-service-secrets \
-          --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" \
-          --dry-run=client -o yaml | kubectl apply -f - || true
-
-        kubectl create configmap app-config \
-          --from-literal=chatHistoryUrl='http://chat-history-service:5002' \
-          --dry-run=client -o yaml | kubectl apply -f - || true
+    helm repo update
+    
+    # Use kubectl to check if the namespace exists before creating it
+    if ! kubectl get ns monitoring &> /dev/null; then
+      kubectl create namespace monitoring
     fi
-
-    if ! docker info | grep "Username: $DOCKERHUB_USERNAME" &> /dev/null; then
-        echo "Logging in to Docker Hub..."
-        docker login -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_PASSWORD"
-    else
-        echo "Already logged in to Docker Hub. Skipping."
-    fi
-
-    LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/${repo}/tags/" | jq -r '.results[0].name')
-    echo "Found latest image tag for $repo: $LATEST_TAG"
-
-    cd "./$CHART_SUBDIR"
-    helm upgrade --install "${repo}-release" . --set image.tag="$LATEST_TAG" || true
-    cd .. # Corrected: move back to the root directory
-    cd ..
-done
-
-echo "All services deployed successfully!"
+    
+    helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring
+    kubectl patch svc prometheus-grafana -n monitoring -p '{"spec": {"type": "NodePort"}}'
+    
+    echo "kube-prometheus-stack installation complete."
+else
+    echo "[INFO] kube-prometheus-stack already installed in namespace monitoring, skipping."
+fi
