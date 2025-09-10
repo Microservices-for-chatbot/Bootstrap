@@ -3,12 +3,11 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Set a DEBIAN_FRONTEND to ensure non-interactive apt commands ---
-export DEBIAN_FRONTEND=noninteractive
+
 
 # --- Install Dependencies ---
 echo "Updating and upgrading system packages..."
-sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+sudo apt update -y 
 
 # --- Install Docker ---
 echo "=== Installing Docker ==="
@@ -18,7 +17,7 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
  
-sudo apt-get update -y
+
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
  
 # Add ubuntu user to docker group
