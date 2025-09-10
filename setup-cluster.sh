@@ -5,7 +5,7 @@ set -e
 
 # --- Install Dependencies ---
 sudo apt update -y
-sudo apt upgrade -y
+
 
 # --- Install Docker ---
 echo "Installing Docker..."
