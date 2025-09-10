@@ -51,7 +51,7 @@ else
     echo "[INFO] Kubernetes already initialized, skipping kubeadm init."
 fi
 
----
+
 ## Helm and Ingress Installation
 # -------------------------------------------------------------
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
