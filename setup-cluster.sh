@@ -23,6 +23,9 @@ if ! kubectl get pods -n kube-system 2>/dev/null | grep -q 'kube-apiserver'; the
     sudo cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
     sudo chown ubuntu:ubuntu /home/ubuntu/.kube/config
     
+    # CRITICAL FIX: Set KUBECONFIG variable for the rest of the script.
+    export KUBECONFIG=/home/ubuntu/.kube/config
+    
     # Install Weave Net CNI
     echo "Applying Weave Net CNI..."
     sudo -u ubuntu kubectl apply -f https://github.com/weaveworks/weave/releases/download/v2.8.1/weave-daemonset-k8s.yaml
@@ -48,7 +51,7 @@ else
     echo "[INFO] Kubernetes already initialized, skipping kubeadm init."
 fi
 
-# -------------------------------------------------------------
+---
 ## Helm and Ingress Installation
 # -------------------------------------------------------------
 echo "Adding Nginx Ingress Controller Helm repo and installing..."
@@ -69,7 +72,7 @@ else
     echo "Nginx Ingress Controller already deployed. Skipping."
 fi
 
-# -------------------------------------------------------------
+---
 ## Metrics Server Installation
 # -------------------------------------------------------------
 if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
@@ -96,7 +99,7 @@ else
     echo "[INFO] Metrics Server already installed, skipping."
 fi
 
-# -------------------------------------------------------------
+---
 ## Prometheus and Grafana Installation
 # -------------------------------------------------------------
 if ! helm list -n monitoring | grep -q "prometheus"; then
