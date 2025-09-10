@@ -1,10 +1,10 @@
-name: EC2 creation and initialization
+name: Deploy Cluster and Microservices
 
 on:
   workflow_dispatch:
 
 jobs:
-  bootstrap:
+  bootstrap-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,23 +20,58 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Get Runner Registration Token
+        id: get-runner-token
+        run: |
+          TOKEN=$(curl -s -X POST -H "Authorization: token ${{ secrets.GH_PAT }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/orgs/Microservices-for-chatbot/actions/runners/registration-token | jq -r .token)
+          echo "RUNNER_TOKEN=$TOKEN" >> $GITHUB_ENV
+
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Apply
         id: apply
         run: |
+          # The -var for runner_token is no longer needed since we will SSH later
           terraform apply -auto-approve \
             -var="key_name=amithnv" \
             -var="private_key_content=${{ secrets.SSH_PRIVATE_KEY }}"
       
-      - name: Get Terraform Outputs
-        id: outputs
+      - name: Get EC2 Public IP
+        id: get-ip
         run: |
-          echo "instance_public_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_ENV
+          IP=$(terraform output -raw instance_public_ip)
+          echo "EC2_IP=$IP" >> $GITHUB_ENV
+
+      - name: Setup Runner on EC2 Instance & Trigger Deployments
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          RUNNER_TOKEN: ${{ env.RUNNER_TOKEN }}
+        run: |
+          # Write the SSH key to a temporary file
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key
+          chmod 600 private_key
           
-      - name: Save IP Address to Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ec2-ip-address
-          path: terraform.tfstate
+          # SSH into the machine and run the runner setup script
+          # The runner token is passed as an environment variable
+          ssh -o StrictHostKeyChecking=no -i private_key ubuntu@${{ env.EC2_IP }} "
+            mkdir -p /home/ubuntu/actions-runner
+            cd /home/ubuntu/actions-runner
+            curl -o actions-runner-linux-x64-2.316.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.316.0/actions-runner-linux-x64-2.316.0.tar.gz
+            tar xzf ./actions-runner-linux-x64-2.316.0.tar.gz
+            ./config.sh --url https://github.com/Microservices-for-chatbot --token \"${RUNNER_TOKEN}\" --name \"${HOSTNAME}\" --unattended
+            sudo ./svc.sh install
+            sudo ./svc.sh start
+          "
+          
+          # Trigger microservices deployments
+          repos="ai_service frontend chat_history"
+          for repo in $repos; do
+            curl -X POST \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/Microservices-for-chatbot/$repo/actions/workflows/deploy.yml/dispatches \
+            -d '{"ref":"main"}'
+          done
