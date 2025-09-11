@@ -88,24 +88,18 @@ else
     echo "Nginx Ingress Controller already deployed. Skipping."
 fi
 
-## Metrics Server Installation
-# -------------------------------------------------------------
+# --- Metrics Server installation ---
+
 if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
     echo "[INFO] Installing Metrics Server..."
-    if ! sudo -u ubuntu kubectl get nodes &> /dev/null; then
-      echo "kubectl is not configured for the ubuntu user. Skipping Metrics Server installation."
-    else
-      sudo -u ubuntu kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-      
-      echo "Waiting for Metrics Server deployment to be available..."
-      sudo -u ubuntu kubectl wait --for=condition=available deployment/metrics-server --timeout=120s -n kube-system
-      
-      sudo -u ubuntu kubectl -n kube-system patch deploy metrics-server \
-          --type='json' \
-          -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-insecure-tls"}, {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-preferred-address-types=InternalIP"}]'
-      
-      echo "Metrics Server installation complete."
-    fi
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    kubectl -n kube-system patch deploy metrics-server \
+        --type='json' \
+        -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-insecure-tls"},
+            {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-preferred-address-types=InternalIP"}]'
+    # Wait for metrics-server to be ready
+    sleep 7
+    echo "Metrics Server installation complete."
 else
     echo "[INFO] Metrics Server already installed, skipping."
 fi
