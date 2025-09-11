@@ -6,6 +6,7 @@ on:
 jobs:
   bootstrap-and-deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,51 +44,66 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
           EC2_IP: ${{ env.EC2_IP }}
-          GOOGLE_API_KEY: ${{secrets.GOOGLE_API_KEY}}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           echo "${SSH_PRIVATE_KEY}" > private_key
           chmod 600 private_key
 
-          ssh -o StrictHostKeyChecking=no -i private_key ubuntu@${EC2_IP} bash -s <<'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key ubuntu@${EC2_IP} bash -s <<EOF
             set -e
 
-            # Your existing deployment commands with fixes
+            export GOOGLE_API_KEY="${GOOGLE_API_KEY}"
+            export GH_PAT="${GH_PAT}"
 
             # --- AI Service ---
-            kubectl create secret generic ai-service-secrets --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl delete secret ai-service-secrets --ignore-not-found
+            kubectl create secret generic ai-service-secrets \
+              --from-literal=GOOGLE_API_KEY="\$GOOGLE_API_KEY"
+
             git clone https://github.com/Microservices-for-chatbot/ai_service.git
             cd ai_service
-            LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
-            helm upgrade --install ai-service Helm-chart --set image.tag="$LATEST_TAG"
+            LATEST_TAG=\$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
+            helm upgrade --install ai-service Helm-chart --set image.tag="\$LATEST_TAG"
+            kubectl rollout restart deployment ai-service
             cd ..
 
             # --- Chat History Service ---
             git clone https://github.com/Microservices-for-chatbot/chat_history.git
             cd chat_history
-            LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/chat-history-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
-            helm upgrade --install chat-history-service ./Helm-chart --set image.tag="$LATEST_TAG"
+            LATEST_TAG=\$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/chat-history-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
+            helm upgrade --install chat-history-service ./Helm-chart --set image.tag="\$LATEST_TAG"
             cd ..
 
             # --- Frontend ---
             git clone https://github.com/Microservices-for-chatbot/frontend.git
             cd frontend
-            LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/frontend/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
-            helm upgrade --install frontend-release ./Helm-chart --set image.tag="$LATEST_TAG"
+            LATEST_TAG=\$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/frontend/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
+            helm upgrade --install frontend-release ./Helm-chart --set image.tag="\$LATEST_TAG"
             cd ..
 
             # --- GitHub Actions Runner Setup ---
-
             RUNNER_DIR="/home/ubuntu/actions-runner"
-            mkdir -p "$RUNNER_DIR"
-            cd "$RUNNER_DIR"
+            mkdir -p "\$RUNNER_DIR"
+            cd "\$RUNNER_DIR"
 
             curl -o actions-runner-linux-x64.tar.gz -L https://github.com/actions/runner/releases/download/v2.316.0/actions-runner-linux-x64-2.316.0.tar.gz
             tar xzf actions-runner-linux-x64.tar.gz
 
-            # Get the runner registration token from GitHub API
-            RUNNER_TOKEN=$(curl -s -X POST -H "Authorization: token ${GH_PAT}" -H "Accept: application/vnd.github.v3+json" https://api.github.com/orgs/Microservices-for-chatbot/actions/runners/registration-token | jq -r .token)
+            RUNNER_TOKEN=\$(curl -s -X POST \
+              -H "Authorization: token \$GH_PAT" \
+              -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/orgs/Microservices-for-chatbot/actions/runners/registration-token | jq -r .token)
 
-            ./config.sh --url https://github.com/Microservices-for-chatbot/Microservices-for-chatbot --token "$RUNNER_TOKEN" --name "$(hostname)" --unattended
+            if [ -z "\$RUNNER_TOKEN" ] || [ "\$RUNNER_TOKEN" = "null" ]; then
+              echo "❌ Failed to retrieve GitHub runner registration token"
+              exit 1
+            fi
+
+            ./config.sh \
+              --url https://github.com/Microservices-for-chatbot \
+              --token "\$RUNNER_TOKEN" \
+              --name "\$(hostname)" \
+              --unattended
 
             sudo ./svc.sh install
             sudo ./svc.sh start
