@@ -3,8 +3,12 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Set a DEBIAN_FRONTEND to ensure non-interactive apt commands ---
+# --- The "Ultimate Fix" for non-interactive apt and needrestart ---
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+# Forcefully prevent any command from waiting for input
+exec < /dev/null
 
 # --- Install base dependencies, jq, and git first ---
 echo "Updating system and installing base dependencies..."
@@ -17,7 +21,7 @@ echo "=== Installing Docker ==="
 # Add Docker's official GPG key and repository
 echo "Adding Docker GPG key and repository..."
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg --yes
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.com/linux/ubuntu $(lsb_release -cs) stable" \
  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # Update apt cache again after adding the new repository
