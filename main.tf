@@ -18,7 +18,7 @@ resource "aws_instance" "runner_instance" {
   key_name      = var.key_name
 
   tags = {
-    Name = "Temporary-Kubernetes-Installer"
+    Name = "Amith_instance"
   }
 
   connection {
