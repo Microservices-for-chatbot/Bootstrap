@@ -8,12 +8,13 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- Install base dependencies, jq, and git first ---
 echo "Updating system and installing base dependencies..."
-sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+sudo apt update -y
+sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
 sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common jq git
 
 # --- Install Docker ---
 echo "=== Installing Docker ==="
-# Add Docker's official GPG key
+# Add Docker's official GPG key and repository
 echo "Adding Docker GPG key and repository..."
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg --yes
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
