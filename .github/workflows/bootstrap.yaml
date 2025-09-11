@@ -43,6 +43,7 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
           EC2_IP: ${{ env.EC2_IP }}
+          GOOGLE_API_KEY: ${{secrets.GOOGLE_API_KEY}}
         run: |
           echo "${SSH_PRIVATE_KEY}" > private_key
           chmod 600 private_key
@@ -53,6 +54,7 @@ jobs:
             # Your existing deployment commands with fixes
 
             # --- AI Service ---
+            kubectl create secret generic ai-service-secrets --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" --dry-run=client -o yaml | kubectl apply -f -
             git clone https://github.com/Microservices-for-chatbot/ai_service.git
             cd ai_service
             LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
