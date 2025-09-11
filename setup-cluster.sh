@@ -8,34 +8,45 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- Install Dependencies ---
 echo "Updating and upgrading system packages..."
-sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+sudo apt update -y
+# The -y flag answers yes to prompts, preventing the script from hanging
+sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
 
-# --- Install Docker ---
-echo "=== Installing Docker ==="
-sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common
+# --- Install Docker, jq, and git in one step to prevent hangs ---
+echo "Installing Docker, jq, git, and other tools..."
+sudo apt-get install -y \
+  apt-transport-https \
+  ca-certificates \
+  curl \
+  gnupg \
+  lsb-release \
+  software-properties-common \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin \
+  jq \
+  git
 
+# --- Add Docker GPG key and repository ---
+echo "Adding Docker GPG key and repository..."
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg --yes
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
+# Update apt cache again after adding the new repository
 sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Add ubuntu user to docker group
 sudo usermod -aG docker ubuntu
 newgrp docker
 echo "✅ Docker installed and user 'ubuntu' added to the docker group."
 
-# --- Install jq (for JSON parsing) and git ---
-echo "Installing jq and git..."
-sudo apt-get install -y jq git
-
 # --- Kubernetes Cluster Setup ---
-# Kubeadm initialization
 if ! kubectl get pods -n kube-system 2>/dev/null | grep -q 'kube-apiserver'; then
     echo "No Kubernetes control-plane found. Initializing new cluster..."
     
-    # Kubeadm init command
     sudo kubeadm init --cri-socket=unix:///var/run/crio/crio.sock
     
     echo "Configuring kubectl for ubuntu user..."
