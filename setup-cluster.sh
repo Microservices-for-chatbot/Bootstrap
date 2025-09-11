@@ -8,7 +8,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- Install Dependencies ---
 echo "Updating and upgrading system packages..."
-sudo apt update -y 
+sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
 
 # --- Install Docker ---
 echo "=== Installing Docker ==="
@@ -34,6 +34,8 @@ sudo apt-get install -y jq git
 # Kubeadm initialization
 if ! kubectl get pods -n kube-system 2>/dev/null | grep -q 'kube-apiserver'; then
     echo "No Kubernetes control-plane found. Initializing new cluster..."
+    
+    # Kubeadm init command
     sudo kubeadm init --cri-socket=unix:///var/run/crio/crio.sock
     
     echo "Configuring kubectl for ubuntu user..."
@@ -92,11 +94,9 @@ if ! kubectl get deployment metrics-server -n kube-system &> /dev/null; then
     else
       sudo -u ubuntu kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
       
-      # Wait for the deployment to be created and available
       echo "Waiting for Metrics Server deployment to be available..."
       sudo -u ubuntu kubectl wait --for=condition=available deployment/metrics-server --timeout=120s -n kube-system
       
-      # Now apply the patch
       sudo -u ubuntu kubectl -n kube-system patch deploy metrics-server \
           --type='json' \
           -p='[{"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-insecure-tls"}, {"op": "add", "path": "/spec/template/spec/containers/0/args/-", "value":"--kubelet-preferred-address-types=InternalIP"}]'
