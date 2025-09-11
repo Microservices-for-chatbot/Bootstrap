@@ -8,7 +8,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- Install Dependencies ---
 echo "Updating and upgrading system packages..."
-sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+sudo apt update -y 
 
 # --- Install Docker ---
 echo "=== Installing Docker ==="
