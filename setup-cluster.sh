@@ -6,30 +6,14 @@ set -e
 # --- Set a DEBIAN_FRONTEND to ensure non-interactive apt commands ---
 export DEBIAN_FRONTEND=noninteractive
 
-# --- Install Dependencies ---
-echo "Updating and upgrading system packages..."
-sudo apt update -y
-# The -y flag answers yes to prompts, preventing the script from hanging
-sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+# --- Install base dependencies, jq, and git first ---
+echo "Updating system and installing base dependencies..."
+sudo apt update -y && sudo apt upgrade -y -o Dpkg::Options::="--force-confold"
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common jq git
 
-# --- Install Docker, jq, and git in one step to prevent hangs ---
-echo "Installing Docker, jq, git, and other tools..."
-sudo apt-get install -y \
-  apt-transport-https \
-  ca-certificates \
-  curl \
-  gnupg \
-  lsb-release \
-  software-properties-common \
-  docker-ce \
-  docker-ce-cli \
-  containerd.io \
-  docker-buildx-plugin \
-  docker-compose-plugin \
-  jq \
-  git
-
-# --- Add Docker GPG key and repository ---
+# --- Install Docker ---
+echo "=== Installing Docker ==="
+# Add Docker's official GPG key
 echo "Adding Docker GPG key and repository..."
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg --yes
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
@@ -38,7 +22,10 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docke
 # Update apt cache again after adding the new repository
 sudo apt-get update -y
 
-# Add ubuntu user to docker group
+# Install Docker packages after the repository has been added
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Add ubuntu user to docker group and apply changes
 sudo usermod -aG docker ubuntu
 newgrp docker
 echo "✅ Docker installed and user 'ubuntu' added to the docker group."
