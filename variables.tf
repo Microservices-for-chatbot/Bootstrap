@@ -16,9 +16,20 @@ variable "key_name" {
   default     = "amithnv"
 }
 
-
 variable "private_key_content" {
   description = "The content of the private key for SSH access."
   type        = string
-  sensitive   = true # Marks the variable as sensitive to prevent it from being displayed in logs.
+  sensitive   = true
+}
+
+variable "s3_bucket_name" {
+  description = "S3 bucket name for Terraform state storage"
+  type        = string
+  default     = "amithms"
+}
+
+variable "dynamodb_table_name" {
+  description = "DynamoDB table name for Terraform state locking"
+  type        = string
+  default     = "terraform-locks"
 }
