@@ -42,7 +42,6 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           EC2_IP: ${{ env.EC2_IP }}
         run: |
           echo "${SSH_PRIVATE_KEY}" > private_key
@@ -56,7 +55,6 @@ jobs:
             # --- AI Service ---
             git clone https://github.com/Microservices-for-chatbot/ai_service.git
             cd ai_service
-            kubectl create secret generic ai-service-secrets --from-literal=GOOGLE_API_KEY="${GOOGLE_API_KEY}" --dry-run=client -o yaml | kubectl apply -f -
             LATEST_TAG=$(curl -s "https://hub.docker.com/v2/repositories/amithpalissery/ai-service/tags" | jq -r '.results[] | select(.name != "latest") | .name' | head -n1)
             helm upgrade --install ai-service Helm-chart --set image.tag="$LATEST_TAG"
             cd ..
