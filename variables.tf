@@ -31,5 +31,5 @@ variable "s3_bucket_name" {
 variable "dynamodb_table_name" {
   description = "DynamoDB table name for Terraform state locking"
   type        = string
-  default     = "terraform-locks"
+  default     = "terraform-locks-amith"
 }
