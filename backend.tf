@@ -3,7 +3,7 @@ terraform {
     bucket         = "amithms"              
     key            = "state/terraform.tfstate"
     region         = "us-east-1"           
-    dynamodb_table = "terraform-locks"      
+    dynamodb_table = "terraform-locks-amith"      
     encrypt        = true
   }
 }
